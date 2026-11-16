@@ -140,18 +140,7 @@ html,body{max-width:100vw;overflow-x:hidden}
   <label class="sr" for="quick">Quick picks</label>
   <select id="quick">
     <option value="">Quick picks…</option>
-    <option value="p:will conrad">Will Conrad</option>
-    <option value="p:steven spera">Steven Spera</option>
-    <option value="p:j. patrick adair">J. Patrick Adair</option>
-    <option value="p:payton moledor">Payton Moledor</option>
-    <option value="p:meixin yu">Meixin Yu</option>
-    <option value="p:jackson key">Jackson Key</option>
-    <option value="p:r. lee kennedy">R. Lee Kennedy</option>
-    <option value="bridge">Bridge people (all 3 groups)</option>
-    <option value="bacon:r. lee kennedy">Bacon numbers from R. Lee Kennedy</option>
-    <option value="bacon:will conrad">Bacon numbers from Will Conrad</option>
-    <option value="path:will conrad|payton moledor">Path: Will Conrad → Payton Moledor</option>
-    <option value="path:j. patrick adair|will conrad">Path: J. Patrick Adair → Will Conrad</option>
+    <!-- filled at start-up by buildQuick(): the people with the most collaborators -->
   </select>
   <button id="btnFilters" class="mobbtn" aria-label="Show filters">Filters</button>
   <button id="btnDetails" class="mobbtn" aria-label="Show details">Details</button>
@@ -258,6 +247,7 @@ const rgba=(h,a)=>{const[r,g,b]=hex2rgb(h);return`rgba(${r},${g},${b},${a})`};
 
 // ---------- data ----------
 const people=D.people.map((a,i)=>({i,name:a[0],o:a[1],y0:a[2],y1:a[3],f:a[4],gap:a[5],L:a[6],deg:a[7],hub:a[8],np:a[9]}));
+const TOP=people.slice().sort((x,y)=>y.deg-x.deg||x.name.localeCompare(y.name)).slice(0,8);   // the most-connected people (collaborators), used for the quick picks and the sample chips
 const yrs=p=>p.y0===p.y1?String(p.y0):p.y0+'–'+p.y1;
 const cleanTitle=t=>{const m=/^\[Untitled \S+ show #\d+(?:: (.*))?\]$/.exec(t);if(!m)return t;let d=m[1]||'';if(d.length>60){const dt=(/(\d{4}-\d{2}-\d{2})\s*$/.exec(d)||[])[1]||'';let h=d.replace(/,?\s*\d{4}-\d{2}-\d{2}\s*$/,'').trim();const c=h.lastIndexOf(',',56);h=h.length>56?h.slice(0,c>20?c:56).trim()+'…':h;d=h+(dt?', '+dt:'')}return 'Untitled show'+(d?' ('+d+')':'')};   // the source page gave no title; keep what we know (director, author, date)
 const prods=D.prods.map((a,i)=>({i,t:cleanTitle(a[0]),o:a[1],s:a[2],y:a[3],tk:a[4]}));
@@ -758,7 +748,7 @@ function renderDegrees(){
   const el=$('#t-degrees');
   let h=`<h2>Degrees from one person</h2><p class="muted">Colors the whole network by how many shows away each person is (a "Kevin Bacon number").</p>
   <div class="searchwrap" style="max-width:none"><label class="sr" for="dg">Origin</label><input id="dg" placeholder="Choose a person" autocomplete="off" value="${S.hopOrigin>=0?esc(people[S.hopOrigin].name):''}"><ul class="sugg" id="dgs" hidden></ul></div>
-  <div class="chips" style="margin-top:8px"><button class="chip" data-bacon="r. lee kennedy">R. Lee Kennedy</button><button class="chip" data-bacon="will conrad">Will Conrad</button><button class="chip" data-bacon="steven spera">Steven Spera</button></div>`;
+  <div class="chips" style="margin-top:8px">${TOP.slice(0,3).map(p=>`<button class="chip" data-bacon="${esc(p.name.toLowerCase())}">${esc(p.name)}</button>`).join('')}</div>`;
   if(S.hopOrigin>=0){
     const d=bfsAll(S.hopOrigin,getAdj(null));const cnt=[];let unreach=0,reach=0,sum=0;
     for(let p=0;p<N;p++){const x=d[p];if(x<0){unreach++;continue}if(p===S.hopOrigin)continue;cnt[x]=(cnt[x]||0)+1;reach++;sum+=x}
@@ -858,12 +848,19 @@ function setScope(s){
   if(s==='ego'&&S.center<0){if(S.sel>=0)S.center=S.sel;else{S.center=findPerson('will conrad');if(S.center<0)return}}
   S.scope=s;S.paths=null;if(s!=='ring')S.ring=-1;rebuild(true);
 }
+function buildQuick(){const q=$('#quick');if(!q)return;const o=t=>{const e=document.createElement('option');e.value=t[0];e.textContent=t[1];q.appendChild(e)};
+  TOP.slice(0,7).forEach(p=>o(['pi:'+p.i,p.name+' ('+p.deg+')']));
+  o(['bridge','Bridge people (all 3 groups)']);
+  if(TOP[0])o(['bi:'+TOP[0].i,'Bacon numbers from '+TOP[0].name]);if(TOP[1])o(['bi:'+TOP[1].i,'Bacon numbers from '+TOP[1].name]);
+  if(TOP[1]&&TOP[2])o(['pathi:'+TOP[1].i+'|'+TOP[2].i,'Path: '+TOP[1].name+' → '+TOP[2].name])}
 function quick(v){
   if(!v)return;const[k,a]=v.split(':');
-  if(k==='p'){const i=findPerson(a);if(i>=0)selectPerson(i,{ego:true})}
+  if(k==='pi'){selectPerson(+a,{ego:true})}
+  else if(k==='p'){const i=findPerson(a);if(i>=0)selectPerson(i,{ego:true})}
   else if(v==='bridge'){S.scope='bridge';S.paths=null;rebuild(true);setTab('person');renderPerson()}
-  else if(k==='bacon'){const i=findPerson(a);if(i>=0){startBacon(i);S.scope='ego';S.center=i;S.depth=2;S.cap=700;applyFiltersToUI();rebuild(true)}}
+  else if(k==='bacon'||k==='bi'){const i=k==='bi'?+a:findPerson(a);if(i>=0){startBacon(i);S.scope='ego';S.center=i;S.depth=2;S.cap=700;applyFiltersToUI();rebuild(true)}}
   else if(k==='path'){const[x,y]=a.split('|');runPath(findPerson(x),findPerson(y))}
+  else if(k==='pathi'){const[x,y]=a.split('|');runPath(+x,+y)}
 }
 // ---------- hash ----------
 let hashT=null;
@@ -936,7 +933,7 @@ function wire(){
   $('#optFreeze').addEventListener('change',e=>{S.freeze=e.target.checked;if(S.freeze)pinAll();else unpinAll();writeHash()});
   $('#optSize').addEventListener('change',e=>{S.size=e.target.value;topCache=null;restyle();updateLegend();writeHash()});
   $('#play').addEventListener('click',play);$('#resetYears').addEventListener('click',()=>{S.F.y0=YMIN;S.F.y1=YMAX;applyFiltersToUI();rebuild(false)});
-  $('#quick').addEventListener('change',e=>{quick(e.target.value);e.target.value=''});
+  buildQuick();$('#quick').addEventListener('change',e=>{quick(e.target.value);e.target.value=''});
   $('#btnAbout').addEventListener('click',about);
   $('#btn2d').addEventListener('click',()=>{S.twoD=!S.twoD;$('#nowebgl').hidden=true;rememberPos();initGraph();rebuild(true)});
   $('#btnFilters').addEventListener('click',()=>{$('#left').classList.toggle('open');$('#right').classList.remove('open')});

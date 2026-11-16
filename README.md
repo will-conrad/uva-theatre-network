@@ -5,6 +5,7 @@ An interactive map of how people connected through theatre at the University of 
 **Open it:** https://will-conrad.github.io/uva-theatre-network/
 
 - One self-contained page; search a person or show, see their credits, and how closely they worked with others (directors and designers on the same show count as closer than two cast members in a festival).
+- Switch between a 2D and a 3D view, choose a scope (everyone, lighting, or one person's circle), and use **Report a correction** or **Not a person** on any name to open an issue here.
 - Credits are as printed in sources and can contain errors. Two people with the same name can be confused, and one person under two spellings can appear twice.
 - Youth and education productions are not included. No biographies, class years or contact details are shown.
 

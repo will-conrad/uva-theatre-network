@@ -185,8 +185,8 @@
 
     <div class="row-2">
       <div class="form-group">
-        <label for="yearInput">Year / Season *</label>
-        <input type="text" id="yearInput" placeholder="e.g. 2026">
+        <label for="yearInput">Year / Season (optional)</label>
+        <input type="text" id="yearInput" placeholder="e.g. 2026 (leave blank if unknown)">
       </div>
       <div class="form-group">
         <label for="orgInput">Organization *</label>
@@ -247,8 +247,8 @@
     data: "zPK0iLPvPT4QrPKL+4/EbKLhQ6Rdj/FB5/C8oqNtUHYFPKU9uQzLeZWxhjCKcNa5Z47ROBnYXnM="
   };
 
-  // Default year
-  document.getElementById('yearInput').value = new Date().getFullYear();
+  // Default year (leave blank — optional field)
+  // document.getElementById('yearInput').value = new Date().getFullYear();
 
   // Load settings
   let token = '';
@@ -491,7 +491,6 @@
     const notes = document.getElementById('notesInput').value.trim();
 
     if (!title) { alert('Please enter a Production Title.'); return; }
-    if (!year) { alert('Please enter a Year/Season.'); return; }
     if (filesList.length === 0) { alert('Please select at least one program photo.'); return; }
 
     btnSubmit.disabled = true;
@@ -503,7 +502,7 @@
       const now = new Date();
       const stamp = now.toISOString().replace(/[-:T]/g, '').slice(0, 14);
       const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-      const batchId = `${stamp}_${slug}_${year}`;
+      const batchId = `${stamp}_${slug}${year ? '_' + year : ''}`;
       const batchFolder = `injest/programs/${batchId}`;
 
       // 1. Get branch ref
@@ -598,7 +597,7 @@
       const manifestObj = {
         batch_id: batchId,
         title: title,
-        year: year,
+        year: year || null,
         organization: org,
         notes: notes,
         created_at: now.toISOString(),
@@ -641,7 +640,7 @@
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: `Ingest drop: ${title} (${year}) - ${filesList.length} pages`,
+          message: `Ingest drop: ${title}${year ? ' (' + year + ')' : ''} - ${filesList.length} pages`,
           tree: treeData.sha,
           parents: [parentCommitSha]
         })
@@ -662,7 +661,7 @@
       setProgress(100);
       showStatus(`
         <div style="font-weight:700; font-size:1rem; margin-bottom:4px;">✓ Deposit Complete!</div>
-        <div>Deposited <b>${filesList.length} page(s)</b> for <b>'${title}' (${year})</b> into <code>${batchFolder}</code>.</div>
+        <div>Deposited <b>${filesList.length} page(s)</b> for <b>'${title}'${year ? ' (' + year + ')' : ''}</b> into <code>${batchFolder}</code>.</div>
         <div style="margin-top:8px;">
           <a href="https://github.com/${repo}/tree/${branch}/${batchFolder}" target="_blank" style="display:inline-block; padding:6px 12px; background:#065f46; color:#a7f3d0; border-radius:6px; text-decoration:none; font-weight:600; font-size:0.85rem;">View on GitHub ↗</a>
         </div>

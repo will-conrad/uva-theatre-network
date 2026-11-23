@@ -134,10 +134,13 @@
 <div class="app-container">
   <header>
     <div>
-      <h1>Archive Ingest <span class="badge">Mobile</span></h1>
-      <div style="font-size:0.75rem; color:var(--text-muted);">UVA Performing Arts Archive</div>
+      <h1>Archive Ingest <span class="badge">Open Drop</span></h1>
+      <div style="font-size:0.75rem; color:var(--text-muted);">UVA Performing Arts Archive — Public Program Deposit</div>
     </div>
-    <button class="btn-auth" id="btnSettings">⚙ Settings</button>
+    <div id="authStatusBadge" style="font-size:0.8rem; color:#34d399; display:flex; align-items:center; gap:6px; font-weight:600;">
+      <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#10b981;"></span>
+      <span>Direct Deposit Active</span>
+    </div>
   </header>
 
   <!-- Tip banner -->
@@ -217,44 +220,9 @@
   </div>
 </div>
 
-<!-- Settings / Unlock Modal -->
-<div class="modal-overlay" id="settingsModal">
-  <div class="modal">
-    <h3>Unlock Archive Upload</h3>
-    <p>Enter the archive passcode to enable direct photo deposits into the private project repository.</p>
-
-    <div class="form-group" style="margin-bottom:14px;">
-      <label for="pinInput" style="font-size:0.9rem; color:#f8fafc; font-weight:700;">Archive Passcode *</label>
-      <div style="display:flex; gap:8px;">
-        <input type="password" id="pinInput" placeholder="Enter Passcode (e.g. 1812)" style="font-size:1.1rem; letter-spacing:2px; padding:10px 14px;">
-        <button class="btn-auth" id="btnUnlockPin" type="button" style="background:var(--primary); color:#fff; border:none; padding:10px 18px; font-weight:700; white-space:nowrap;">Unlock</button>
-      </div>
-      <div id="pinStatus" style="font-size:0.8rem; margin-top:6px; display:none;"></div>
-    </div>
-
-    <details style="margin-top:16px; border-top:1px solid #1e293b; padding-top:12px; font-size:0.75rem; color:#64748b;">
-      <summary style="cursor:pointer; color:#94a3b8; font-weight:600; margin-bottom:8px;">⚙ Advanced: Custom Personal Access Token (PAT)</summary>
-      <div class="form-group">
-        <label for="patInput">Personal Access Token (PAT)</label>
-        <input type="password" id="patInput" placeholder="github_pat_...">
-      </div>
-      <div class="form-group">
-        <label for="repoInput">Repository</label>
-        <input type="text" id="repoInput" value="will-conrad/uva-performing-arts-archive">
-      </div>
-      <div class="form-group">
-        <label for="branchInput">Branch</label>
-        <input type="text" id="branchInput" value="main-i5ywf3">
-      </div>
-      <button class="btn-auth" id="btnSaveSettings" style="background:#1e293b; color:#fff; border:1px solid #334155; padding:6px 12px; margin-top:4px;">Save Custom Token</button>
-    </details>
-
-    <div class="modal-actions" style="margin-top:18px;">
-      <button class="btn-auth" id="btnCopyMagicLink" type="button" style="margin-right:auto; color:#93c5fd; border-color:#1d4ed8;">📋 Copy 1-Tap Link</button>
-      <button class="btn-auth" id="btnCancelSettings">Close</button>
-    </div>
-  </div>
-</div>
+  <footer style="text-align:center; margin-top:28px; padding:16px 0; border-top:1px solid var(--card-border); font-size:0.75rem; color:var(--text-muted);">
+    UVA Performing Arts Archive — Public Program Ingest Drop Box
+  </footer>
 
 <script>
   let filesList = []; // { file, dataUrl, base64, rotation, name }
@@ -272,39 +240,24 @@
   const progressBarBg = document.getElementById('progressBarBg');
   const progressBarFill = document.getElementById('progressBarFill');
 
-  // Encrypted token vault (AES-256-GCM + PBKDF2). Decryptable via PIN 1812.
+  // Automatic archive credential unlock (zero PIN, zero token needed for anyone)
   const ENCRYPTED_VAULT = {
-    salt: "ZGlY7hnBVaP4hiPP+2bHfg==",
-    iv: "eMUvTPEbsvQfdSWM",
-    data: "TlwThwABZ2dfmFaHR0c+ODGiG5itjCgyQu8xdJhq/6IOLn8QDcFfQ5EQX63ow/Gekxlf3K1ic2g="
+    salt: "MiAF+G9/fQyY3dGfzWSH8w==",
+    iv: "M9rkhgEubBnmiGt8",
+    data: "zPK0iLPvPT4QrPKL+4/EbKLhQ6Rdj/FB5/C8oqNtUHYFPKU9uQzLeZWxhjCKcNa5Z47ROBnYXnM="
   };
-
-  // Modal elements
-  const btnSettings = document.getElementById('btnSettings');
-  const settingsModal = document.getElementById('settingsModal');
-  const btnCancelSettings = document.getElementById('btnCancelSettings');
-  const btnSaveSettings = document.getElementById('btnSaveSettings');
-  const patInput = document.getElementById('patInput');
-  const repoInput = document.getElementById('repoInput');
-  const branchInput = document.getElementById('branchInput');
-  const pinInput = document.getElementById('pinInput');
-  const btnUnlockPin = document.getElementById('btnUnlockPin');
-  const pinStatus = document.getElementById('pinStatus');
-  const btnCopyMagicLink = document.getElementById('btnCopyMagicLink');
 
   // Default year
   document.getElementById('yearInput').value = new Date().getFullYear();
 
   // Load settings
   let token = localStorage.getItem('archive_gh_token') || '';
-  let repo = localStorage.getItem('archive_gh_repo') || 'will-conrad/uva-performing-arts-archive';
-  let branch = localStorage.getItem('archive_gh_branch') || 'main-i5ywf3';
+  let repo = 'will-conrad/uva-performing-arts-archive';
+  let branch = 'main-i5ywf3';
 
-  // Decrypt vault using PIN via Web Cryptography API
-  async function unlockWithPin(pin) {
-    pinStatus.style.display = 'block';
-    pinStatus.style.color = '#93c5fd';
-    pinStatus.innerText = 'Validating passcode...';
+  // Automatically decrypt deposit credentials on page load (zero PIN / zero token)
+  async function autoUnlock() {
+    if (token) return token;
     try {
       const salt = Uint8Array.from(atob(ENCRYPTED_VAULT.salt), c => c.charCodeAt(0));
       const iv = Uint8Array.from(atob(ENCRYPTED_VAULT.iv), c => c.charCodeAt(0));
@@ -312,7 +265,7 @@
 
       const keyMaterial = await crypto.subtle.importKey(
         'raw',
-        new TextEncoder().encode(pin),
+        new TextEncoder().encode('uva-theatre-archive-public-injest'),
         'PBKDF2',
         false,
         ['deriveKey']
@@ -329,128 +282,15 @@
       const dec = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
       token = new TextDecoder().decode(dec);
       localStorage.setItem('archive_gh_token', token);
-      localStorage.setItem('archive_gh_pin', pin);
-      patInput.value = token;
-      pinStatus.style.color = '#34d399';
-      pinStatus.innerText = '✓ Passcode accepted! Archive unlocked.';
-      await updateAuthStatus(true);
-      setTimeout(() => {
-        settingsModal.style.display = 'none';
-        pinStatus.style.display = 'none';
-      }, 700);
-      return true;
+      return token;
     } catch (e) {
-      pinStatus.style.color = '#f87171';
-      pinStatus.innerText = '✕ Incorrect passcode. Please try again.';
-      return false;
+      console.warn('Auto-unlock error:', e);
+      return null;
     }
   }
 
-  btnUnlockPin.addEventListener('click', () => {
-    const val = pinInput.value.trim();
-    if (!val) { alert('Please enter a passcode.'); return; }
-    unlockWithPin(val);
-  });
-  pinInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      btnUnlockPin.click();
-    }
-  });
-
-  // Support 1-tap setup via URL hash:
-  // e.g. #pin=1812 or #token=github_pat_...
-  if (window.location.hash) {
-    try {
-      const hashParams = new URLSearchParams(window.location.hash.substring(1));
-      const hashPin = hashParams.get('pin');
-      const hashToken = hashParams.get('token');
-      if (hashPin) {
-        unlockWithPin(hashPin.trim());
-        history.replaceState(null, '', window.location.pathname);
-      } else if (hashToken) {
-        token = hashToken.trim();
-        localStorage.setItem('archive_gh_token', token);
-        if (hashParams.get('repo')) {
-          repo = hashParams.get('repo').trim();
-          localStorage.setItem('archive_gh_repo', repo);
-        }
-        if (hashParams.get('branch')) {
-          branch = hashParams.get('branch').trim();
-          localStorage.setItem('archive_gh_branch', branch);
-        }
-        history.replaceState(null, '', window.location.pathname);
-        updateAuthStatus(true);
-      }
-    } catch (e) {
-      console.warn('Could not parse URL hash params', e);
-    }
-  } else if (!token) {
-    const savedPin = localStorage.getItem('archive_gh_pin');
-    if (savedPin) unlockWithPin(savedPin);
-  }
-
-  patInput.value = token;
-  repoInput.value = repo;
-  branchInput.value = branch;
-  updateAuthStatus();
-
-  btnCopyMagicLink.addEventListener('click', () => {
-    const savedPin = localStorage.getItem('archive_gh_pin') || '1812';
-    const cleanUrl = window.location.origin + window.location.pathname;
-    const magicLink = `${cleanUrl}#pin=${encodeURIComponent(savedPin)}`;
-    navigator.clipboard.writeText(magicLink).then(() => {
-      btnCopyMagicLink.innerText = '✓ Copied Link!';
-      setTimeout(() => btnCopyMagicLink.innerText = '📋 Copy 1-Tap Link', 2500);
-    }).catch(() => {
-      prompt('Copy this 1-tap link (auto-unlocks with PIN):', magicLink);
-    });
-  });
-
-  btnSettings.addEventListener('click', () => {
-    settingsModal.style.display = 'flex';
-    if (!token) pinInput.focus();
-  });
-  btnCancelSettings.addEventListener('click', () => settingsModal.style.display = 'none');
-  btnSaveSettings.addEventListener('click', async () => {
-    token = patInput.value.trim();
-    repo = repoInput.value.trim() || 'will-conrad/uva-performing-arts-archive';
-    branch = branchInput.value.trim() || 'main-i5ywf3';
-    localStorage.setItem('archive_gh_token', token);
-    localStorage.setItem('archive_gh_repo', repo);
-    localStorage.setItem('archive_gh_branch', branch);
-    settingsModal.style.display = 'none';
-    await updateAuthStatus(true);
-  });
-
-  async function updateAuthStatus(test = false) {
-    if (!token) {
-      btnSettings.innerText = '🔒 Enter PIN';
-      btnSettings.classList.remove('logged-in');
-      return;
-    }
-    if (test) {
-      try {
-        const res = await fetch('https://api.github.com/user', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (res.ok) {
-          const user = await res.json();
-          btnSettings.innerText = `✓ Connected (@${user.login})`;
-          btnSettings.classList.add('logged-in');
-        } else {
-          btnSettings.innerText = '⚠ Expired (Re-enter PIN)';
-          btnSettings.classList.remove('logged-in');
-        }
-      } catch {
-        btnSettings.innerText = '✓ Connected';
-        btnSettings.classList.add('logged-in');
-      }
-    } else {
-      btnSettings.innerText = '✓ Connected';
-      btnSettings.classList.add('logged-in');
-    }
-  }
+  // Pre-unlock immediately on page load
+  autoUnlock();
 
   cameraBtn.addEventListener('click', () => filePicker.click());
   btnAddMore.addEventListener('click', () => filePicker.click());
@@ -609,8 +449,10 @@
   // Deposit to GitHub via Git Data Trees API (atomic 1-commit upload)
   btnSubmit.addEventListener('click', async () => {
     if (!token) {
-      settingsModal.style.display = 'flex';
-      pinInput.focus();
+      token = await autoUnlock();
+    }
+    if (!token) {
+      alert('Connecting to archive deposit system... please try again in a moment.');
       return;
     }
     const title = document.getElementById('titleInput').value.trim();

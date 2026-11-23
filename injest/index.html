@@ -251,13 +251,13 @@
   document.getElementById('yearInput').value = new Date().getFullYear();
 
   // Load settings
-  let token = localStorage.getItem('archive_gh_token') || '';
+  let token = '';
   let repo = 'will-conrad/uva-performing-arts-archive';
   let branch = 'main-i5ywf3';
+  let _unlockPromise = null;
 
-  // Automatically decrypt deposit credentials on page load (zero PIN / zero token)
-  async function autoUnlock() {
-    if (token) return token;
+  // Decrypt deposit credentials from the embedded vault
+  async function decryptVault() {
     try {
       const salt = Uint8Array.from(atob(ENCRYPTED_VAULT.salt), c => c.charCodeAt(0));
       const iv = Uint8Array.from(atob(ENCRYPTED_VAULT.iv), c => c.charCodeAt(0));
@@ -280,17 +280,45 @@
       );
 
       const dec = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
-      token = new TextDecoder().decode(dec);
-      localStorage.setItem('archive_gh_token', token);
-      return token;
+      return new TextDecoder().decode(dec);
     } catch (e) {
-      console.warn('Auto-unlock error:', e);
+      console.warn('Vault decrypt error:', e);
       return null;
     }
   }
 
-  // Pre-unlock immediately on page load
-  autoUnlock();
+  // Validate token actually works against the GitHub API
+  async function validateToken(t) {
+    try {
+      const r = await fetch(`https://api.github.com/repos/${repo}/git/refs/heads/${branch}`, {
+        headers: { 'Authorization': `Bearer ${t}` }
+      });
+      return r.ok;
+    } catch { return false; }
+  }
+
+  // Get a working token: try cached first, fall back to vault decryption
+  async function autoUnlock() {
+    // Try cached token first
+    const cached = localStorage.getItem('archive_gh_token');
+    if (cached) {
+      const valid = await validateToken(cached);
+      if (valid) { token = cached; return token; }
+      // Cached token is stale, remove it
+      localStorage.removeItem('archive_gh_token');
+      console.warn('Cached token expired, re-decrypting vault...');
+    }
+    // Decrypt from vault
+    const fresh = await decryptVault();
+    if (fresh) {
+      token = fresh;
+      localStorage.setItem('archive_gh_token', fresh);
+    }
+    return token || null;
+  }
+
+  // Pre-unlock immediately on page load (save the promise so submit can await it)
+  _unlockPromise = autoUnlock();
 
   cameraBtn.addEventListener('click', () => filePicker.click());
   btnAddMore.addEventListener('click', () => filePicker.click());
@@ -448,11 +476,13 @@
 
   // Deposit to GitHub via Git Data Trees API (atomic 1-commit upload)
   btnSubmit.addEventListener('click', async () => {
+    // Ensure auto-unlock has completed (awaits the page-load promise)
     if (!token) {
-      token = await autoUnlock();
+      showStatus('Connecting to archive deposit system...', 'info');
+      token = await (_unlockPromise || autoUnlock());
     }
     if (!token) {
-      alert('Connecting to archive deposit system... please try again in a moment.');
+      showStatus('Unable to connect to the archive. Please reload the page and try again.', 'error');
       return;
     }
     const title = document.getElementById('titleInput').value.trim();
@@ -477,12 +507,38 @@
       const batchFolder = `injest/programs/${batchId}`;
 
       // 1. Get branch ref
+      let parentCommitSha;
       const refRes = await fetch(`https://api.github.com/repos/${repo}/git/refs/heads/${branch}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      if (!refRes.ok) throw new Error(`Cannot access branch '${branch}' on ${repo} (${refRes.status}). Check Token permissions.`);
-      const refData = await refRes.json();
-      const parentCommitSha = refData.object.sha;
+      if (!refRes.ok) {
+        if (refRes.status === 401 || refRes.status === 403) {
+          // Token may have expired — clear cache and retry once
+          localStorage.removeItem('archive_gh_token');
+          token = '';
+          const freshToken = await decryptVault();
+          if (freshToken) {
+            token = freshToken;
+            localStorage.setItem('archive_gh_token', freshToken);
+            const retryRes = await fetch(`https://api.github.com/repos/${repo}/git/refs/heads/${branch}`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (retryRes.ok) {
+              const retryData = await retryRes.json();
+              parentCommitSha = retryData.object.sha;
+            } else {
+              throw new Error(`Authentication failed (${retryRes.status}). The deposit token may have expired. Please contact the archive maintainer.`);
+            }
+          } else {
+            throw new Error('Unable to decrypt deposit credentials. Please reload the page.');
+          }
+        } else {
+          throw new Error(`Cannot access branch '${branch}' on ${repo} (${refRes.status}).`);
+        }
+      } else {
+        const refData = await refRes.json();
+        parentCommitSha = refData.object.sha;
+      }
 
       // 2. Get commit to find base tree
       const commitRes = await fetch(`https://api.github.com/repos/${repo}/git/commits/${parentCommitSha}`, {
@@ -514,7 +570,10 @@
             encoding: 'base64'
           })
         });
-        if (!blobRes.ok) throw new Error(`Failed uploading page ${i + 1} blob: ${blobRes.statusText}`);
+        if (!blobRes.ok) {
+          const errBody = await blobRes.text().catch(() => '');
+          throw new Error(`Failed uploading page ${i + 1} (HTTP ${blobRes.status}). ${errBody.slice(0, 200)}`);
+        }
         const blobData = await blobRes.json();
 
         treeEntries.push({
@@ -614,7 +673,8 @@
       filePicker.value = '';
       renderThumbs();
     } catch (err) {
-      showStatus('Upload error: ' + err.message, 'error');
+      console.error('Upload error details:', err);
+      showStatus(`<div style="font-weight:600;">Upload Error</div><div style="margin-top:4px;">${err.message}</div><div style="margin-top:8px; font-size:0.75rem; color:#fca5a5;">If this persists, try reloading the page. For help, screenshot this error.</div>`, 'error');
     } finally {
       btnSubmit.disabled = false;
       document.getElementById('uploadSpinner').style.display = 'none';

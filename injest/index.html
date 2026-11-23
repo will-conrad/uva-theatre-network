@@ -287,34 +287,18 @@
     }
   }
 
-  // Validate token actually works against the GitHub API
-  async function validateToken(t) {
-    try {
-      const r = await fetch(`https://api.github.com/repos/${repo}/git/refs/heads/${branch}`, {
-        headers: { 'Authorization': `Bearer ${t}` }
-      });
-      return r.ok;
-    } catch { return false; }
-  }
-
-  // Get a working token: try cached first, fall back to vault decryption
+  // Always decrypt fresh from vault (no stale cache issues)
   async function autoUnlock() {
-    // Try cached token first
-    const cached = localStorage.getItem('archive_gh_token');
-    if (cached) {
-      const valid = await validateToken(cached);
-      if (valid) { token = cached; return token; }
-      // Cached token is stale, remove it
-      localStorage.removeItem('archive_gh_token');
-      console.warn('Cached token expired, re-decrypting vault...');
+    try {
+      const fresh = await decryptVault();
+      if (fresh) {
+        token = fresh;
+        return token;
+      }
+    } catch (e) {
+      console.warn('autoUnlock error:', e);
     }
-    // Decrypt from vault
-    const fresh = await decryptVault();
-    if (fresh) {
-      token = fresh;
-      localStorage.setItem('archive_gh_token', fresh);
-    }
-    return token || null;
+    return null;
   }
 
   // Pre-unlock immediately on page load (save the promise so submit can await it)

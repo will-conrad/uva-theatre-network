@@ -249,6 +249,7 @@
     </div>
 
     <div class="modal-actions">
+      <button class="btn-auth" id="btnCopyMagicLink" type="button" style="margin-right:auto; color:#93c5fd; border-color:#1d4ed8;">📋 Copy Setup Link</button>
       <button class="btn-auth" id="btnCancelSettings">Cancel</button>
       <button class="btn-auth" id="btnSaveSettings" style="background:var(--primary); color:#fff; border:none; padding:8px 16px;">Save & Validate</button>
     </div>
@@ -288,10 +289,52 @@
   let repo = localStorage.getItem('archive_gh_repo') || 'will-conrad/uva-performing-arts-archive';
   let branch = localStorage.getItem('archive_gh_branch') || 'main-i5ywf3';
 
+  // Support 1-tap setup via URL hash (e.g. https://...#token=github_pat_...)
+  // The hash fragment is strictly client-side and never sent to GitHub's servers
+  if (window.location.hash) {
+    try {
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const hashToken = hashParams.get('token');
+      if (hashToken) {
+        token = hashToken.trim();
+        localStorage.setItem('archive_gh_token', token);
+        if (hashParams.get('repo')) {
+          repo = hashParams.get('repo').trim();
+          localStorage.setItem('archive_gh_repo', repo);
+        }
+        if (hashParams.get('branch')) {
+          branch = hashParams.get('branch').trim();
+          localStorage.setItem('archive_gh_branch', branch);
+        }
+        // Scrub the token immediately from the address bar so it is never exposed in screen/history
+        history.replaceState(null, '', window.location.pathname);
+      }
+    } catch (e) {
+      console.warn('Could not parse URL hash params', e);
+    }
+  }
+
   patInput.value = token;
   repoInput.value = repo;
   branchInput.value = branch;
   updateAuthStatus();
+
+  const btnCopyMagicLink = document.getElementById('btnCopyMagicLink');
+  btnCopyMagicLink.addEventListener('click', () => {
+    const curToken = patInput.value.trim() || token;
+    if (!curToken) {
+      alert('Enter a token first to generate a setup link.');
+      return;
+    }
+    const cleanUrl = window.location.origin + window.location.pathname;
+    const magicLink = `${cleanUrl}#token=${encodeURIComponent(curToken)}`;
+    navigator.clipboard.writeText(magicLink).then(() => {
+      btnCopyMagicLink.innerText = '✓ Copied Link!';
+      setTimeout(() => btnCopyMagicLink.innerText = '📋 Copy Setup Link', 2500);
+    }).catch(() => {
+      prompt('Copy this setup link:', magicLink);
+    });
+  });
 
   btnSettings.addEventListener('click', () => settingsModal.style.display = 'flex');
   btnCancelSettings.addEventListener('click', () => settingsModal.style.display = 'none');

@@ -217,41 +217,41 @@
   </div>
 </div>
 
-<!-- Settings Modal -->
+<!-- Settings / Unlock Modal -->
 <div class="modal-overlay" id="settingsModal">
   <div class="modal">
-    <h3>GitHub Deposit Settings</h3>
-    <p>Stored locally on your phone's browser only. Never sent to any third-party server.</p>
+    <h3>Unlock Archive Upload</h3>
+    <p>Enter the archive passcode to enable direct photo deposits into the private project repository.</p>
 
-    <div class="guide-box">
-      <b>How to generate your Token (1 minute):</b>
-      <ol>
-        <li>Open <a href="https://github.com/settings/tokens?type=beta" target="_blank">GitHub Fine-grained PATs</a></li>
-        <li>Repository Access: <code>Selected repositories</code> → <code>will-conrad/uva-performing-arts-archive</code></li>
-        <li>Permissions: <code>Repository permissions</code> → <code>Contents</code> → <b>Read and write</b></li>
-        <li>Generate and paste the token below.</li>
-      </ol>
-    </div>
-    
-    <div class="form-group">
-      <label for="patInput">Personal Access Token (PAT) *</label>
-      <input type="password" id="patInput" placeholder="github_pat_...">
+    <div class="form-group" style="margin-bottom:14px;">
+      <label for="pinInput" style="font-size:0.9rem; color:#f8fafc; font-weight:700;">Archive Passcode *</label>
+      <div style="display:flex; gap:8px;">
+        <input type="password" id="pinInput" placeholder="Enter Passcode (e.g. 1812)" style="font-size:1.1rem; letter-spacing:2px; padding:10px 14px;">
+        <button class="btn-auth" id="btnUnlockPin" type="button" style="background:var(--primary); color:#fff; border:none; padding:10px 18px; font-weight:700; white-space:nowrap;">Unlock</button>
+      </div>
+      <div id="pinStatus" style="font-size:0.8rem; margin-top:6px; display:none;"></div>
     </div>
 
-    <div class="form-group">
-      <label for="repoInput">Target Archive Repository *</label>
-      <input type="text" id="repoInput" value="will-conrad/uva-performing-arts-archive">
-    </div>
+    <details style="margin-top:16px; border-top:1px solid #1e293b; padding-top:12px; font-size:0.75rem; color:#64748b;">
+      <summary style="cursor:pointer; color:#94a3b8; font-weight:600; margin-bottom:8px;">⚙ Advanced: Custom Personal Access Token (PAT)</summary>
+      <div class="form-group">
+        <label for="patInput">Personal Access Token (PAT)</label>
+        <input type="password" id="patInput" placeholder="github_pat_...">
+      </div>
+      <div class="form-group">
+        <label for="repoInput">Repository</label>
+        <input type="text" id="repoInput" value="will-conrad/uva-performing-arts-archive">
+      </div>
+      <div class="form-group">
+        <label for="branchInput">Branch</label>
+        <input type="text" id="branchInput" value="main-i5ywf3">
+      </div>
+      <button class="btn-auth" id="btnSaveSettings" style="background:#1e293b; color:#fff; border:1px solid #334155; padding:6px 12px; margin-top:4px;">Save Custom Token</button>
+    </details>
 
-    <div class="form-group">
-      <label for="branchInput">Branch *</label>
-      <input type="text" id="branchInput" value="main-i5ywf3">
-    </div>
-
-    <div class="modal-actions">
-      <button class="btn-auth" id="btnCopyMagicLink" type="button" style="margin-right:auto; color:#93c5fd; border-color:#1d4ed8;">📋 Copy Setup Link</button>
-      <button class="btn-auth" id="btnCancelSettings">Cancel</button>
-      <button class="btn-auth" id="btnSaveSettings" style="background:var(--primary); color:#fff; border:none; padding:8px 16px;">Save & Validate</button>
+    <div class="modal-actions" style="margin-top:18px;">
+      <button class="btn-auth" id="btnCopyMagicLink" type="button" style="margin-right:auto; color:#93c5fd; border-color:#1d4ed8;">📋 Copy 1-Tap Link</button>
+      <button class="btn-auth" id="btnCancelSettings">Close</button>
     </div>
   </div>
 </div>
@@ -272,6 +272,13 @@
   const progressBarBg = document.getElementById('progressBarBg');
   const progressBarFill = document.getElementById('progressBarFill');
 
+  // Encrypted token vault (AES-256-GCM + PBKDF2). Decryptable via PIN 1812.
+  const ENCRYPTED_VAULT = {
+    salt: "ZGlY7hnBVaP4hiPP+2bHfg==",
+    iv: "eMUvTPEbsvQfdSWM",
+    data: "TlwThwABZ2dfmFaHR0c+ODGiG5itjCgyQu8xdJhq/6IOLn8QDcFfQ5EQX63ow/Gekxlf3K1ic2g="
+  };
+
   // Modal elements
   const btnSettings = document.getElementById('btnSettings');
   const settingsModal = document.getElementById('settingsModal');
@@ -280,6 +287,10 @@
   const patInput = document.getElementById('patInput');
   const repoInput = document.getElementById('repoInput');
   const branchInput = document.getElementById('branchInput');
+  const pinInput = document.getElementById('pinInput');
+  const btnUnlockPin = document.getElementById('btnUnlockPin');
+  const pinStatus = document.getElementById('pinStatus');
+  const btnCopyMagicLink = document.getElementById('btnCopyMagicLink');
 
   // Default year
   document.getElementById('yearInput').value = new Date().getFullYear();
@@ -289,13 +300,75 @@
   let repo = localStorage.getItem('archive_gh_repo') || 'will-conrad/uva-performing-arts-archive';
   let branch = localStorage.getItem('archive_gh_branch') || 'main-i5ywf3';
 
-  // Support 1-tap setup via URL hash (e.g. https://...#token=github_pat_...)
-  // The hash fragment is strictly client-side and never sent to GitHub's servers
+  // Decrypt vault using PIN via Web Cryptography API
+  async function unlockWithPin(pin) {
+    pinStatus.style.display = 'block';
+    pinStatus.style.color = '#93c5fd';
+    pinStatus.innerText = 'Validating passcode...';
+    try {
+      const salt = Uint8Array.from(atob(ENCRYPTED_VAULT.salt), c => c.charCodeAt(0));
+      const iv = Uint8Array.from(atob(ENCRYPTED_VAULT.iv), c => c.charCodeAt(0));
+      const data = Uint8Array.from(atob(ENCRYPTED_VAULT.data), c => c.charCodeAt(0));
+
+      const keyMaterial = await crypto.subtle.importKey(
+        'raw',
+        new TextEncoder().encode(pin),
+        'PBKDF2',
+        false,
+        ['deriveKey']
+      );
+
+      const key = await crypto.deriveKey(
+        { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['decrypt']
+      );
+
+      const dec = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
+      token = new TextDecoder().decode(dec);
+      localStorage.setItem('archive_gh_token', token);
+      localStorage.setItem('archive_gh_pin', pin);
+      patInput.value = token;
+      pinStatus.style.color = '#34d399';
+      pinStatus.innerText = '✓ Passcode accepted! Archive unlocked.';
+      await updateAuthStatus(true);
+      setTimeout(() => {
+        settingsModal.style.display = 'none';
+        pinStatus.style.display = 'none';
+      }, 700);
+      return true;
+    } catch (e) {
+      pinStatus.style.color = '#f87171';
+      pinStatus.innerText = '✕ Incorrect passcode. Please try again.';
+      return false;
+    }
+  }
+
+  btnUnlockPin.addEventListener('click', () => {
+    const val = pinInput.value.trim();
+    if (!val) { alert('Please enter a passcode.'); return; }
+    unlockWithPin(val);
+  });
+  pinInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      btnUnlockPin.click();
+    }
+  });
+
+  // Support 1-tap setup via URL hash:
+  // e.g. #pin=1812 or #token=github_pat_...
   if (window.location.hash) {
     try {
       const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const hashPin = hashParams.get('pin');
       const hashToken = hashParams.get('token');
-      if (hashToken) {
+      if (hashPin) {
+        unlockWithPin(hashPin.trim());
+        history.replaceState(null, '', window.location.pathname);
+      } else if (hashToken) {
         token = hashToken.trim();
         localStorage.setItem('archive_gh_token', token);
         if (hashParams.get('repo')) {
@@ -306,12 +379,15 @@
           branch = hashParams.get('branch').trim();
           localStorage.setItem('archive_gh_branch', branch);
         }
-        // Scrub the token immediately from the address bar so it is never exposed in screen/history
         history.replaceState(null, '', window.location.pathname);
+        updateAuthStatus(true);
       }
     } catch (e) {
       console.warn('Could not parse URL hash params', e);
     }
+  } else if (!token) {
+    const savedPin = localStorage.getItem('archive_gh_pin');
+    if (savedPin) unlockWithPin(savedPin);
   }
 
   patInput.value = token;
@@ -319,24 +395,22 @@
   branchInput.value = branch;
   updateAuthStatus();
 
-  const btnCopyMagicLink = document.getElementById('btnCopyMagicLink');
   btnCopyMagicLink.addEventListener('click', () => {
-    const curToken = patInput.value.trim() || token;
-    if (!curToken) {
-      alert('Enter a token first to generate a setup link.');
-      return;
-    }
+    const savedPin = localStorage.getItem('archive_gh_pin') || '1812';
     const cleanUrl = window.location.origin + window.location.pathname;
-    const magicLink = `${cleanUrl}#token=${encodeURIComponent(curToken)}`;
+    const magicLink = `${cleanUrl}#pin=${encodeURIComponent(savedPin)}`;
     navigator.clipboard.writeText(magicLink).then(() => {
       btnCopyMagicLink.innerText = '✓ Copied Link!';
-      setTimeout(() => btnCopyMagicLink.innerText = '📋 Copy Setup Link', 2500);
+      setTimeout(() => btnCopyMagicLink.innerText = '📋 Copy 1-Tap Link', 2500);
     }).catch(() => {
-      prompt('Copy this setup link:', magicLink);
+      prompt('Copy this 1-tap link (auto-unlocks with PIN):', magicLink);
     });
   });
 
-  btnSettings.addEventListener('click', () => settingsModal.style.display = 'flex');
+  btnSettings.addEventListener('click', () => {
+    settingsModal.style.display = 'flex';
+    if (!token) pinInput.focus();
+  });
   btnCancelSettings.addEventListener('click', () => settingsModal.style.display = 'none');
   btnSaveSettings.addEventListener('click', async () => {
     token = patInput.value.trim();
@@ -351,7 +425,7 @@
 
   async function updateAuthStatus(test = false) {
     if (!token) {
-      btnSettings.innerText = '⚙ Set Token';
+      btnSettings.innerText = '🔒 Enter PIN';
       btnSettings.classList.remove('logged-in');
       return;
     }
@@ -362,14 +436,15 @@
         });
         if (res.ok) {
           const user = await res.json();
-          btnSettings.innerText = `✓ @${user.login}`;
+          btnSettings.innerText = `✓ Connected (@${user.login})`;
           btnSettings.classList.add('logged-in');
         } else {
-          btnSettings.innerText = '⚠ Invalid Token';
+          btnSettings.innerText = '⚠ Expired (Re-enter PIN)';
           btnSettings.classList.remove('logged-in');
         }
       } catch {
-        btnSettings.innerText = '✓ Token Saved';
+        btnSettings.innerText = '✓ Connected';
+        btnSettings.classList.add('logged-in');
       }
     } else {
       btnSettings.innerText = '✓ Connected';
@@ -535,7 +610,7 @@
   btnSubmit.addEventListener('click', async () => {
     if (!token) {
       settingsModal.style.display = 'flex';
-      alert('Please enter your GitHub Personal Access Token first in Settings.');
+      pinInput.focus();
       return;
     }
     const title = document.getElementById('titleInput').value.trim();
